@@ -136,6 +136,7 @@ void sendIntervalMsgs()
 {
     Serial.println("Send interval message");
     syncCdChanger();
+    displaySidMessage();
 }
 
 /**
@@ -255,4 +256,34 @@ void syncCdChanger(void)
     syncMsg[7] = 0xD0; // security byte, 0xD0 means everything is GOOD
 
     CAN.sendMsgBuf(0x3C8, 0, 8, syncMsg);
+}
+
+void displaySidMessage(void)
+{
+    unsigned char msg1[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    unsigned char msg2[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    unsigned char msg3[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+
+    msg1[0] = 0x43; // first message order byte
+    msg1[2] = 0x2; // display on row 2
+    msg1[3] = 'h';
+    msg1[4] = 'i';
+    msg1[5] = ' ';
+    msg1[6] = 'm';
+    msg1[7] = 'i';
+    msg2[0] = 0x1; // second message order byte
+    msg2[2] = 0x2; // display on row 2
+    msg2[3] = 'k';
+    msg2[4] = 'e';
+    msg2[5] = '!';
+    msg2[6] = '.';
+    msg2[7] = '@';
+    msg3[0] = 0x0; // third message order byte
+    msg3[2] = 0x2; // display on row 2
+    msg3[3] = '[';
+    msg3[4] = ']';
+
+    CAN.sendMsgBuf(0x328, 0, 8, msg1);
+    CAN.sendMsgBuf(0x328, 0, 8, msg2);
+    CAN.sendMsgBuf(0x328, 0, 8, msg3);
 }
