@@ -134,6 +134,7 @@ void loop()
  */
 void sendIntervalMsgs()
 {
+    Serial.println("Send interval message");
     syncCdChanger();
 }
 
@@ -253,4 +254,5 @@ void syncCdChanger(void)
     syncMsg[6] = 0x20; // set current second
     syncMsg[7] = 0xD0; // security byte, 0xD0 means everything is GOOD
 
+    CAN.sendMsgBuf(0x3C8, 0, 8, syncMsg);
 }
