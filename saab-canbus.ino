@@ -14,6 +14,7 @@ MCP_CAN CAN(SPI_CS_PIN);
 unsigned char flagRecv = 0;
 unsigned char len = 0;
 unsigned char buf[8];
+unsigned long lastUpdateTime = millis();
 
 // button flags
 unsigned char flag_wheelVolDown = 0;
@@ -37,6 +38,9 @@ unsigned char state_frontRDoor = 0;
 unsigned char state_rearLDoor = 0;
 unsigned char state_rearRDoor = 0;
 unsigned char state_trunk = 0;
+unsigned int state_dimmer = 0;
+unsigned int state_lightSensor = 0;
+unsigned char state_npanel = 0;
 
 void setup()
 {
@@ -117,6 +121,20 @@ void loop()
     if (flag_sidClockMin) {
         flag_sidClockMin = 0; // clear flag
     }
+
+    if (millis() - lastUpdateTime >= 1000) {
+        // a second has passed, send interval messages
+        lastUpdateTime = millis();
+        sendIntervalMsgs();
+    }
+}
+
+/**
+ * Any messages that must be send on a 1 second interval are sent here
+ */
+void sendIntervalMsgs()
+{
+    syncCdChanger();
 }
 
 /**
@@ -137,6 +155,9 @@ void handleRecv()
             break;
         case 0x320:
             parse320(buf);
+            break;
+        case 0x410:
+            parse410(buf);
             break;
         }
     }
@@ -183,10 +204,53 @@ void parse320(unsigned char* msgBuf)
     char belt = msgBuf[2]; // related to seat belts, unknown meaning
     char bulbs = msgBuf[4]; // related to broken light bulbs
 
-    state_locked = !(door >> 7) & 1; // 1 is locked, 0 is unlocked (read bit is inverted)
-    state_frontLDoor = (door >> 6) & 1; // 1 i opened , 0 is closed
-    state_frontRDoor = (door >> 5) & 1; // 1 is opened, 0 is closed
-    state_rearLDoor = (door >> 4) & 1; // 1 is opened, 0 is closed
-    state_rearRDoor = (door >> 3) & 1; // 1 is opened, 0 is closed
-    state_trunk = (door >> 2) & 1; // 1 is opened, 0 is closed
+    if (state)
+    // only need to update state if state has changed
+    {
+        state_locked = !(door >> 7) & 1; // 1 is locked, 0 is unlocked (read bit is inverted)
+        state_frontLDoor = (door >> 6) & 1; // 1 i opened , 0 is closed
+        state_frontRDoor = (door >> 5) & 1; // 1 is opened, 0 is closed
+        state_rearLDoor = (door >> 4) & 1; // 1 is opened, 0 is closed
+        state_rearRDoor = (door >> 3) & 1; // 1 is opened, 0 is closed
+        state_trunk = (door >> 2) & 1; // 1 is opened, 0 is closed
+    }
+}
+
+/**
+ * Parses 0x410 messages (light dimmer and light sensor) and updates state variables
+ */
+void parse410(unsigned char* msgBuf)
+{
+    char state = msgBuf[0];
+    char dim1 = msgBuf[1];
+    char dim0 = msgBuf[2];
+    char light1 = msgBuf[3];
+    char light0 = msgBuf[4];
+    char npanel = msgBuf[5];
+
+    if (state)
+    // only need to update state if state has changed
+    {
+        state_dimmer = (dim1 << 4) || dim0;
+        state_lightSensor = (light1 << 4) || light0;
+        state_npanel = npanel;
+    }
+}
+
+
+/**
+ * Send a message to the SID that there is a cd changer present. Stock setup has this message
+ * sending every second
+ */
+void syncCdChanger(void)
+{
+    unsigned char syncMsg[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    syncMsg[0] = 0x80; // set changed bit to 1
+    syncMsg[2] = 0x3F; // set magazine byte to all discs occupied
+    syncMsg[3] = 0x41; // cd changer is active and playing disc 1
+    syncMsg[4] = 0x69; // current track number
+    syncMsg[5] = 0x04; // set current minute
+    syncMsg[6] = 0x20; // set current second
+    syncMsg[7] = 0xD0; // security byte, 0xD0 means everything is GOOD
+
 }
