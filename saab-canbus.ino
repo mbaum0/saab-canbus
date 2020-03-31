@@ -5,6 +5,7 @@
 
 #include <SPI.h>
 #include "mcp_can.h"
+#include <string.h>
 
 const int SPI_CS_PIN = 9;
 const int CAN_INT_PIN = 2;
@@ -14,7 +15,10 @@ MCP_CAN CAN(SPI_CS_PIN);
 unsigned char flagRecv = 0;
 unsigned char len = 0;
 unsigned char buf[8];
-unsigned long lastUpdateTime = millis();
+unsigned long lastUpdateTime1S = millis();
+unsigned long lastUpdateTime500Ms = millis();
+char sidMsg[12];
+unsigned int scrollIndex = 0;
 
 // button flags
 unsigned char flag_wheelVolDown = 0;
@@ -41,6 +45,7 @@ unsigned char state_trunk = 0;
 unsigned int state_dimmer = 0;
 unsigned int state_lightSensor = 0;
 unsigned char state_npanel = 0;
+unsigned char state_sidWriteAccess = 0;
 
 void setup()
 {
@@ -103,39 +108,55 @@ void loop()
     {
         flag_sidClr = 0; // clear flag
     }
-    if (flag_sidSet) {
+    if (flag_sidSet)
+    {
         flag_sidSet = 0; // clear flag
     }
-    if (flag_sidDown) {
+    if (flag_sidDown)
+    {
         flag_sidDown = 0; // clear flag
     }
-    if (flag_sidUp) {
+    if (flag_sidUp)
+    {
         flag_sidUp = 0; // clear flag
     }
-    if (flag_sidNpanel) {
+    if (flag_sidNpanel)
+    {
         flag_sidNpanel = 0; // clear flag
     }
-    if (flag_sidClockPlus) {
+    if (flag_sidClockPlus)
+    {
         flag_sidClockPlus = 0; // clear flag
     }
-    if (flag_sidClockMin) {
+    if (flag_sidClockMin)
+    {
         flag_sidClockMin = 0; // clear flag
     }
 
-    if (millis() - lastUpdateTime >= 1000) {
+    if (millis() - lastUpdateTime1S >= 1000)
+    {
         // a second has passed, send interval messages
-        lastUpdateTime = millis();
-        sendIntervalMsgs();
+        lastUpdateTime1S = millis();
+        send1SecIntervalMsgs();
+    }
+    if (millis() - lastUpdateTime500Ms >= 500)
+    {
+        lastUpdateTime500Ms = millis();
+        send500MsIntervalMsgs();
     }
 }
 
 /**
  * Any messages that must be send on a 1 second interval are sent here
  */
-void sendIntervalMsgs()
+void send1SecIntervalMsgs()
 {
-    Serial.println("Send interval message");
     syncCdChanger();
+}
+
+void send500MsIntervalMsgs()
+{
+    setMessageFromIndex();
     displaySidMessage();
 }
 
@@ -160,6 +181,9 @@ void handleRecv()
             break;
         case 0x410:
             parse410(buf);
+            break;
+        case 0x368:
+            parse368(buf);
             break;
         }
     }
@@ -199,29 +223,29 @@ void parse290(unsigned char *msgBuf)
 /**
  * Parses 0x320 messages (doors, central locking, and seat belts?) and updates state variables
  */
-void parse320(unsigned char* msgBuf)
+void parse320(unsigned char *msgBuf)
 {
     char state = msgBuf[0]; // 1 if state has changed, 0 otherwise
-    char door = msgBuf[1]; // locked state and door status
-    char belt = msgBuf[2]; // related to seat belts, unknown meaning
+    char door = msgBuf[1];  // locked state and door status
+    char belt = msgBuf[2];  // related to seat belts, unknown meaning
     char bulbs = msgBuf[4]; // related to broken light bulbs
 
     if (state)
     // only need to update state if state has changed
     {
-        state_locked = !(door >> 7) & 1; // 1 is locked, 0 is unlocked (read bit is inverted)
+        state_locked = !(door >> 7) & 1;    // 1 is locked, 0 is unlocked (read bit is inverted)
         state_frontLDoor = (door >> 6) & 1; // 1 i opened , 0 is closed
         state_frontRDoor = (door >> 5) & 1; // 1 is opened, 0 is closed
-        state_rearLDoor = (door >> 4) & 1; // 1 is opened, 0 is closed
-        state_rearRDoor = (door >> 3) & 1; // 1 is opened, 0 is closed
-        state_trunk = (door >> 2) & 1; // 1 is opened, 0 is closed
+        state_rearLDoor = (door >> 4) & 1;  // 1 is opened, 0 is closed
+        state_rearRDoor = (door >> 3) & 1;  // 1 is opened, 0 is closed
+        state_trunk = (door >> 2) & 1;      // 1 is opened, 0 is closed
     }
 }
 
 /**
  * Parses 0x410 messages (light dimmer and light sensor) and updates state variables
  */
-void parse410(unsigned char* msgBuf)
+void parse410(unsigned char *msgBuf)
 {
     char state = msgBuf[0];
     char dim1 = msgBuf[1];
@@ -238,7 +262,6 @@ void parse410(unsigned char* msgBuf)
         state_npanel = npanel;
     }
 }
-
 
 /**
  * Send a message to the SID that there is a cd changer present. Stock setup has this message
@@ -258,32 +281,70 @@ void syncCdChanger(void)
     CAN.sendMsgBuf(0x3C8, 0, 8, syncMsg);
 }
 
+void setMessageFromIndex()
+{
+    char msg[100] = "            Good Evening, Michael. Welcome to SAAB";
+    strcpy(sidMsg, "            ");
+    //strcpy(&sidMsg[11-scrollIndex%11], &msg[scrollIndex/11]);
+    strcpy(sidMsg, &msg[scrollIndex]);
+    // sidMsg[11-(scrollIndex%11)] = msg[0];
+    // sidMsg[10-(scrollIndex%11)] = msg[1];
+
+    scrollIndex++;
+    if (scrollIndex > strlen(msg))
+    {
+        scrollIndex = 0;
+    }
+}
+
+
 void displaySidMessage(void)
 {
-    unsigned char msg1[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-    unsigned char msg2[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-    unsigned char msg3[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    char msg1[8] = {0x42, 0x96, 0x2, 0, 0, 0, 0, 0};
+    char msg2[8] = {0x1, 0x96, 0x2, 0, 0, 0, 0, 0};
+    char msg3[8] = {0x0, 0x96, 0x2, 0, 0, 0, 0, 0};
 
-    msg1[0] = 0x43; // first message order byte
-    msg1[2] = 0x2; // display on row 2
-    msg1[3] = 'h';
-    msg1[4] = 'i';
-    msg1[5] = ' ';
-    msg1[6] = 'm';
-    msg1[7] = 'i';
-    msg2[0] = 0x1; // second message order byte
-    msg2[2] = 0x2; // display on row 2
-    msg2[3] = 'k';
-    msg2[4] = 'e';
-    msg2[5] = '!';
-    msg2[6] = '.';
-    msg2[7] = '@';
-    msg3[0] = 0x0; // third message order byte
-    msg3[2] = 0x2; // display on row 2
-    msg3[3] = '[';
-    msg3[4] = ']';
+    memcpy(&msg1[3], &sidMsg[0], 5);
+    memcpy(&msg2[3], &sidMsg[5], 5);
+    memcpy(&msg3[3], &sidMsg[10], 2);
 
-    CAN.sendMsgBuf(0x328, 0, 8, msg1);
-    CAN.sendMsgBuf(0x328, 0, 8, msg2);
-    CAN.sendMsgBuf(0x328, 0, 8, msg3);
+    requestSidAccess();
+
+    if (state_sidWriteAccess)
+    {
+        CAN.sendMsgBuf(0x337, 0, 8, msg1);
+        delay(10);
+        CAN.sendMsgBuf(0x337, 0, 8, msg2);
+        delay(10);
+        CAN.sendMsgBuf(0x337, 0, 8, msg3);
+        delay(10);
+
+        state_sidWriteAccess = 0; // write access is for one msg
+    }
+}
+
+void requestSidAccess(void)
+{
+    //Serial.println("Requesting SID access");
+    unsigned char req[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    req[0] = 0x1F;
+    req[1] = 0x02;
+    req[2] = 0x05; // 1 = engineering test, 2 = emergency, 3 = driver action, 4 = ecu action, 5 = static text, 0xff = don't write
+    req[3] = 0x12;
+    req[4] = 0x00;
+    req[5] = 0x00;
+    req[6] = 0x00;
+    req[7] = 0x00;
+
+    CAN.sendMsgBuf(0x357, 0, 8, req);
+}
+
+void parse368(unsigned char *msgBuf)
+{
+    //Serial.println("Got 368 message");
+    if (msgBuf[0] == 0x02 && msgBuf[1] == 0x12)
+    {
+        //Serial.println("SID Access granted");
+        state_sidWriteAccess = 1;
+    }
 }
